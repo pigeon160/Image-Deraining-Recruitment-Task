@@ -1,0 +1,14 @@
+# 数据集（超过 1GB，严禁上传 GitHub）
+data/
+
+# 训练生成的大图
+evaluation_images/
+
+# 训练权重（若需要上传轻量模型可以只排除大权重）
+checkpoints/
+
+# Python 缓存
+__pycache__/
+*.py[cod]
+*$py.class
+.cache/

@@ -1,23 +1,39 @@
 import torch
+import math
 import numpy as np
+import torch.nn as nn
 from skimage.metrics import peak_signal_noise_ratio as psnr
 from skimage.metrics import structural_similarity as ssim
 from torchvision.utils import save_image
 
+def calc_psnr(img1, img2, data_range : float = 1.0) -> float :
+    img1 = img1.detach().clamp(0, data_range)
+    img2 = img2.detach().clamp(0, data_range)
+
+    mses = nn.MSELoss(reduction = "none")(img1, img2)
+    mses = mses.reshape(mses.shape[0], -1).mean(dim = 1)
+    psnr_list = []
+
+    for mse in mses.tolist() :
+        if abs(mse) < 1e-10 :
+            psnr_list.append(100.0)
+        else :
+            psnr_list.append(10.0 * math.log10(data_range ** 2 / mse))
+    return sum(psnr_list) / len(psnr_list)
 
 def calculate_metrics(img1, img2, lpips_fn):
-
+    avg_psnr = calc_psnr(img1, img2, data_range = 1.0)
     img1_np = img1.detach().cpu().numpy().transpose(0, 2, 3, 1)
     img2_np = img2.detach().cpu().numpy().transpose(0, 2, 3, 1)
     img1_np = np.clip(img1_np, 0, 1)
     img2_np = np.clip(img2_np, 0, 1)
 
-    batch_psnr, batch_ssim = 0, 0
+    batch_ssim = 0
     for i in range(img1_np.shape[0]):
-        batch_psnr += psnr(img1_np[i], img2_np[i], data_range=1.0)
+        # batch_psnr += psnr(img1_np[i], img2_np[i], data_range=1.0)
         batch_ssim += ssim(img1_np[i], img2_np[i], data_range=1.0, multichannel=True, channel_axis=2, win_size=7)
 
-    avg_psnr = batch_psnr / img1_np.shape[0]
+    # avg_psnr = batch_psnr / img1_np.shape[0]
     avg_ssim = batch_ssim / img1_np.shape[0]
 
     img1_lpips = img1.clone() * 2 - 1

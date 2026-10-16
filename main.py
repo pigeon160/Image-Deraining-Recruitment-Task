@@ -11,13 +11,16 @@ from dataset import DerainDataset
 from utils import calculate_metrics, save_checkpoint, load_checkpoint, save_some_examples
 from models.baseline_net import BaselineNet
 from models.unet import UNet
+from models.DerainNet import DerainNet
+from models.Mymodel import Mymodel
 from losses.perceptual_loss import PerceptualLoss
+from losses.easy_contrastive_loss import EasyContrastiveLoss
 
 
 def get_args():
     parser = argparse.ArgumentParser(description="Deraining Model Training")
     parser.add_argument("--data_dir", type=str, required=True, help="Path to the dataset")
-    parser.add_argument("--model", type=str, default="baseline", choices=["baseline", "unet"], help="Model to use")
+    parser.add_argument("--model", type=str, default="baseline", choices=["baseline", "unet", "derainnet", "mymodel"], help="Model to use")
     parser.add_argument("--mode", type=str, default="train", choices=["train", "test"], help="Train or test mode")
     parser.add_argument("--checkpoint", type=str, default=None, help="Path to checkpoint for testing")
 
@@ -29,10 +32,13 @@ def get_args():
     parser.add_argument("--lambda_pixel", type=float, default=1.0, help="Weight for pixel loss")
     parser.add_argument("--lambda_perceptual", type=float, default=0.1, help="Weight for perceptual loss")
 
+    parser.add_argument("--use_contrastive_loss", action="store_true", help="Use easy contrastive loss")
+    parser.add_argument("--lambda_contrastive", type=float, default=0.1, help="Weight for contrastive loss")
+    
     return parser.parse_args()
 
 
-def train_one_epoch(loader, model, optimizer, pixel_loss_fn, perceptual_loss_fn, args, device):
+def train_one_epoch(loader, model, optimizer, pixel_loss_fn, perceptual_loss_fn, contrastive_loss_fn, args, device):
     loop = tqdm(loader, leave=True)
     model.train()
 
@@ -41,12 +47,17 @@ def train_one_epoch(loader, model, optimizer, pixel_loss_fn, perceptual_loss_fn,
         derained = model(rainy)
         pixel_loss = args.lambda_pixel * pixel_loss_fn(derained, clean)
         total_loss = pixel_loss
+        postfix = {"pixel_loss": f"{pixel_loss.item():.4f}"}
         if args.use_perceptual_loss:
             p_loss = args.lambda_perceptual * perceptual_loss_fn(derained, clean)
             total_loss += p_loss
-            loop.set_postfix(pixel_loss=pixel_loss.item(), perceptual_loss=p_loss.item())
-        else:
-            loop.set_postfix(pixel_loss=pixel_loss.item())
+            postfix["perceptual_loss"] = f"{p_loss.item():.4f}"
+
+        if args.use_contrastive_loss :
+            p_loss = args.lambda_contrastive * contrastive_loss_fn(derained, clean, rainy)
+            total_loss += p_loss
+            postfix["contrastive_loss"] = f"{p_loss.item():.4f}"
+        loop.set_postfix(postfix)
         optimizer.zero_grad()
         total_loss.backward()
         optimizer.step()
@@ -83,12 +94,17 @@ def main():
         model = BaselineNet().to(device)
     elif args.model == "unet":
         model = UNet().to(device)
-
+    elif args.model == "derainnet" :
+        model = DerainNet().to(device)
+    elif args.model == "mymodel" :
+        model = Mymodel().to(device)
 
     lpips_fn = lpips.LPIPS(net='alex').to(device)
 
-    pixel_loss_fn = nn.L1Loss()
+    # pixel_loss_fn = nn.L1Loss()
+    pixel_loss_fn = nn.MSELoss()
     perceptual_loss_fn = PerceptualLoss().to(device) if args.use_perceptual_loss else None
+    contrastive_loss_fn = EasyContrastiveLoss().to(device) if args.use_contrastive_loss else None
     optimizer = optim.Adam(model.parameters(), lr=args.lr)
 
     if args.mode == "train":
@@ -100,7 +116,7 @@ def main():
         best_psnr = 0.0
         for epoch in range(args.epochs):
             print(f"\n--- Epoch {epoch + 1}/{args.epochs} ---")
-            train_one_epoch(train_loader, model, optimizer, pixel_loss_fn, perceptual_loss_fn, args, device)
+            train_one_epoch(train_loader, model, optimizer, pixel_loss_fn, perceptual_loss_fn, contrastive_loss_fn, args, device)
 
             current_psnr = evaluate(test_loader, model, device, lpips_fn)
 

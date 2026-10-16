@@ -1,8 +1,10 @@
 import os
+import torch as th
+import random
 from PIL import Image
 from torch.utils.data import Dataset
 from torchvision import transforms
-
+random.seed(42)
 
 class DerainDataset(Dataset):
     def __init__(self, root_dir, is_train=True, image_size=128):
@@ -14,12 +16,11 @@ class DerainDataset(Dataset):
         self.clean_dir = os.path.join(self.root_dir, data_folder, 'target')
 
         self.rainy_images = sorted(os.listdir(self.rainy_dir))
-
         if self.is_train:
             self.transform = transforms.Compose([
-                transforms.Resize((image_size, image_size)),
-                transforms.RandomCrop(image_size),
-                transforms.RandomHorizontalFlip(),
+                transforms.Resize((int(image_size), int(image_size))),
+                # transforms.RandomCrop(image_size),
+                # transforms.RandomHorizontalFlip(),
                 transforms.ToTensor()
             ])
         else:
@@ -40,5 +41,9 @@ class DerainDataset(Dataset):
 
         rainy_tensor = self.transform(rainy_image)
         clean_tensor = self.transform(clean_image)
-
+        if self.is_train and random.random() < 0.5:
+            rainy_tensor = th.flip(rainy_tensor, dims=[2])
+            clean_tensor = th.flip(clean_tensor, dims=[2])
+        
         return rainy_tensor, clean_tensor, self.rainy_images[idx]
+    
